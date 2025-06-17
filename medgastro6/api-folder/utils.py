@@ -4,8 +4,9 @@ from functools import wraps
 from typing import Any, Callable, Dict, List, Optional
 import numpy as np
 from PIL import Image
-import tensorflow as tf
+import torch
 from config import LOGGING_CONFIG, SECURITY_CONFIG
+import logging.config
 
 # Configure logging
 logging.config.dictConfig(LOGGING_CONFIG)
@@ -113,12 +114,13 @@ def validate_model_input(data: Dict[str, Any]) -> bool:
     required_fields = ['image_path', 'question']
     return all(field in data for field in required_fields)
 
-def get_model_metrics(model: tf.keras.Model) -> Dict[str, float]:
+def get_model_metrics(model: torch.nn.Module) -> Dict[str, float]:
     """Get model performance metrics."""
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
     return {
-        "parameters": model.count_params(),
-        "layers": len(model.layers),
-        "trainable_parameters": sum(
-            np.prod(w.shape) for w in model.trainable_weights
-        )
+        "parameters": total_params,
+        "layers": len(list(model.modules())),
+        "trainable_parameters": trainable_params
     } 

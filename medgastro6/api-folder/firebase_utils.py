@@ -5,6 +5,7 @@ from datetime import datetime
 import uuid
 from typing import Optional, Dict, Any
 import logging
+from config import FIREBASE_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -12,16 +13,24 @@ class FirebaseStorageManager:
     def __init__(self):
         """Initialize Firebase Storage connection."""
         try:
+            # Check if credentials file exists
+            cred_path = FIREBASE_CONFIG["credentials_path"]
+            if not os.path.exists(cred_path):
+                logger.warning(f"Firebase credentials file not found at {cred_path}")
+                logger.info("Firebase Storage will be disabled")
+                self.bucket = None
+                return
+
             # Initialize Firebase Admin SDK
-            cred = credentials.Certificate("firebase-credentials.json")
+            cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred, {
-                'storageBucket': 'your-project-id.appspot.com'  # Replace with your bucket
+                'storageBucket': FIREBASE_CONFIG["storage_bucket"]
             })
             self.bucket = storage.bucket()
             logger.info("Firebase Storage initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing Firebase Storage: {str(e)}")
-            raise
+            self.bucket = None
 
     def upload_image(self, image_path: str, user_id: str) -> Dict[str, Any]:
         """
@@ -34,6 +43,16 @@ class FirebaseStorageManager:
         Returns:
             Dict containing upload metadata
         """
+        if self.bucket is None:
+            logger.warning("Firebase Storage is not initialized")
+            return {
+                "filename": os.path.basename(image_path),
+                "url": None,
+                "uploaded_at": datetime.now().strftime("%Y%m%d_%H%M%S"),
+                "user_id": user_id,
+                "original_path": image_path
+            }
+
         try:
             # Generate unique filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -64,7 +83,13 @@ class FirebaseStorageManager:
             
         except Exception as e:
             logger.error(f"Error uploading image: {str(e)}")
-            raise
+            return {
+                "filename": os.path.basename(image_path),
+                "url": None,
+                "uploaded_at": datetime.now().strftime("%Y%m%d_%H%M%S"),
+                "user_id": user_id,
+                "original_path": image_path
+            }
 
     def get_image_url(self, filename: str) -> Optional[str]:
         """
@@ -76,6 +101,10 @@ class FirebaseStorageManager:
         Returns:
             Public URL of the image or None if not found
         """
+        if self.bucket is None:
+            logger.warning("Firebase Storage is not initialized")
+            return None
+
         try:
             blob = self.bucket.blob(filename)
             if not blob.exists():
@@ -96,6 +125,10 @@ class FirebaseStorageManager:
         Returns:
             True if deletion was successful, False otherwise
         """
+        if self.bucket is None:
+            logger.warning("Firebase Storage is not initialized")
+            return False
+
         try:
             blob = self.bucket.blob(filename)
             if blob.exists():
@@ -117,6 +150,10 @@ class FirebaseStorageManager:
         Returns:
             List of image metadata
         """
+        if self.bucket is None:
+            logger.warning("Firebase Storage is not initialized")
+            return []
+
         try:
             prefix = f"images/{user_id}/"
             blobs = self.bucket.list_blobs(prefix=prefix)

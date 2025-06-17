@@ -1,65 +1,124 @@
 import firebase_admin
-from firebase_admin import auth, credentials
+from firebase_admin import credentials, auth
 import os
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 import logging
-from config import SECURITY_CONFIG
+from config import FIREBASE_CONFIG
 
 logger = logging.getLogger(__name__)
 
 class AuthManager:
     def __init__(self):
-        """Initialize Firebase Auth."""
+        """Initialize Firebase Auth connection."""
         try:
+            # Check if credentials file exists
+            cred_path = FIREBASE_CONFIG["credentials_path"]
+            if not os.path.exists(cred_path):
+                logger.warning(f"Firebase credentials file not found at {cred_path}")
+                logger.info("Firebase Auth will be disabled")
+                self.auth = None
+                return
+
             # Initialize Firebase Admin SDK if not already initialized
             if not firebase_admin._apps:
-                cred = credentials.Certificate("firebase-credentials.json")
+                cred = credentials.Certificate(cred_path)
                 firebase_admin.initialize_app(cred)
-            
-            logger.info("Auth Manager initialized successfully")
+            self.auth = auth
+            logger.info("Firebase Auth initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing Auth Manager: {str(e)}")
-            raise
+            self.auth = None
 
-    def create_user(self, email: str, password: str, display_name: str) -> Dict:
+    def verify_token(self, token: str) -> dict:
         """
-        Create a new user with Firebase's built-in email verification.
+        Verify Firebase ID token.
         
         Args:
-            email: User's email address
-            password: User's password
-            display_name: User's display name
+            token: Firebase ID token
             
         Returns:
-            User data dictionary
+            Decoded token claims or None if verification fails
         """
+        if self.auth is None:
+            logger.warning("Firebase Auth is not initialized")
+            return None
+
         try:
-            # Create user in Firebase
-            user = auth.create_user(
+            decoded_token = self.auth.verify_id_token(token)
+            return decoded_token
+        except Exception as e:
+            logger.error(f"Error verifying token: {str(e)}")
+            return None
+
+    def create_user(self, email: str, password: str) -> dict:
+        """
+        Create a new user in Firebase Auth.
+        
+        Args:
+            email: User's email
+            password: User's password
+            
+        Returns:
+            User record or None if creation fails
+        """
+        if self.auth is None:
+            logger.warning("Firebase Auth is not initialized")
+            return None
+
+        try:
+            user = self.auth.create_user(
                 email=email,
                 password=password,
-                display_name=display_name,
                 email_verified=False
             )
-            
-            # Send email verification using Firebase's built-in functionality
-            auth.generate_email_verification_link(email)
-            
-            user_data = {
-                "uid": user.uid,
-                "email": user.email,
-                "display_name": user.display_name,
-                "email_verified": user.email_verified,
-                "created_at": datetime.now().isoformat()
-            }
-            
-            logger.info(f"User created successfully: {user.uid}")
-            return user_data
-            
+            return user
         except Exception as e:
             logger.error(f"Error creating user: {str(e)}")
-            raise
+            return None
+
+    def delete_user(self, uid: str) -> bool:
+        """
+        Delete a user from Firebase Auth.
+        
+        Args:
+            uid: User ID
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        if self.auth is None:
+            logger.warning("Firebase Auth is not initialized")
+            return False
+
+        try:
+            self.auth.delete_user(uid)
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting user: {str(e)}")
+            return False
+
+    def update_user(self, uid: str, **kwargs) -> dict:
+        """
+        Update user properties in Firebase Auth.
+        
+        Args:
+            uid: User ID
+            **kwargs: User properties to update
+            
+        Returns:
+            Updated user record or None if update fails
+        """
+        if self.auth is None:
+            logger.warning("Firebase Auth is not initialized")
+            return None
+
+        try:
+            user = self.auth.update_user(uid, **kwargs)
+            return user
+        except Exception as e:
+            logger.error(f"Error updating user: {str(e)}")
+            return None
 
     def send_password_reset_email(self, email: str) -> bool:
         """

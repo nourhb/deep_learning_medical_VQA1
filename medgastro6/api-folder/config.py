@@ -38,6 +38,11 @@ SECURITY_CONFIG = {
     "jwt_algorithm": "HS256",
     "jwt_expiration": 7 * 24 * 60 * 60,  # 7 days in seconds
     "email_verification_expiration": 24 * 60 * 60,  # 24 hours in seconds
+    "cors_origins": ["http://localhost:3000", "http://localhost:5000"],  # Add CORS origins
+    "rate_limit": {
+        "requests": 100,  # Number of requests
+        "period": 3600    # Time period in seconds (1 hour)
+    }
 }
 
 # Email Configuration
@@ -52,7 +57,13 @@ EMAIL_CONFIG = {
 # Firebase Configuration
 FIREBASE_CONFIG = {
     "credentials_path": "firebase-credentials.json",
-    "storage_bucket": os.getenv("FIREBASE_STORAGE_BUCKET"),
+    "storage_bucket": "your-project-id.appspot.com",  # Replace with your Firebase project ID
+    "api_key": "your-api-key",  # Replace with your Firebase API key
+    "auth_domain": "your-project-id.firebaseapp.com",  # Replace with your Firebase auth domain
+    "project_id": "your-project-id",  # Replace with your Firebase project ID
+    "storage_bucket": "your-project-id.appspot.com",  # Replace with your Firebase storage bucket
+    "messaging_sender_id": "your-sender-id",  # Replace with your Firebase messaging sender ID
+    "app_id": "your-app-id"  # Replace with your Firebase app ID
 }
 
 # API Configuration

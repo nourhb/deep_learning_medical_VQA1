@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_swagger_ui import get_swaggerui_blueprint
-import tensorflow as tf
+import torch
 import numpy as np
+from PIL import Image
 from config import (
     API_PREFIX, HOST, PORT, DEBUG,
     MODEL_CONFIG, SECURITY_CONFIG, API_CONFIG
@@ -20,11 +21,19 @@ import os
 from auth_utils import AuthManager
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Debug print of SECURITY_CONFIG
+logger.debug(f"SECURITY_CONFIG: {SECURITY_CONFIG}")
+
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": SECURITY_CONFIG["cors_origins"]}})
+try:
+    CORS(app, resources={r"/api/*": {"origins": SECURITY_CONFIG["cors_origins"]}})
+    logger.info("CORS configured successfully")
+except Exception as e:
+    logger.error(f"Error configuring CORS: {str(e)}")
+    raise
 
 # Initialize managers
 model_manager = ModelManager()
@@ -189,10 +198,20 @@ def predict():
         if model is None:
             raise Exception("No model loaded")
 
-        prediction = model.predict(
-            np.expand_dims(processed_image, axis=0),
-            batch_size=MODEL_CONFIG["batch_size"]
-        )
+        # Convert numpy array to PyTorch tensor
+        image_tensor = torch.from_numpy(processed_image).float()
+        if len(image_tensor.shape) == 3:
+            image_tensor = image_tensor.unsqueeze(0)  # Add batch dimension
+
+        # Move tensor to the same device as the model
+        device = next(model.parameters()).device
+        image_tensor = image_tensor.to(device)
+
+        # Get prediction
+        with torch.no_grad():
+            prediction = model(image_tensor, question)
+            if isinstance(prediction, torch.Tensor):
+                prediction = prediction.cpu().numpy()
         
         model_cache.set(cache_key, prediction.tolist())
         
@@ -204,10 +223,10 @@ def predict():
             "image_url": image_url
         })
     except Exception as e:
-        logger.error(f"Error making prediction: {str(e)}")
+        logger.error(f"Error during prediction: {str(e)}")
         return jsonify({
             "error": True,
-            "message": "Error making prediction",
+            "message": "Error during prediction",
             "status": "error"
         }), 500
 

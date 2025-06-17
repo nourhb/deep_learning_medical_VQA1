@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Optional, List
-import tensorflow as tf
+import torch
 from config import MODEL_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class ModelManager:
     def __init__(self, model_dir: str = MODEL_CONFIG["model_dir"]):
         self.model_dir = model_dir
-        self.models: Dict[str, tf.keras.Model] = {}
+        self.models: Dict[str, torch.nn.Module] = {}
         self.model_metadata: Dict[str, Dict] = {}
         self.current_model: Optional[str] = None
         self._load_metadata()
@@ -37,7 +37,10 @@ class ModelManager:
                 logger.error(f"Model {model_name} not found at {model_path}")
                 return False
 
-            self.models[model_name] = tf.keras.models.load_model(model_path)
+            # Load PyTorch model
+            model = torch.load(model_path)
+            model.eval()  # Set to evaluation mode
+            self.models[model_name] = model
             self.current_model = model_name
             logger.info(f"Loaded model {model_name}")
             return True
@@ -45,7 +48,7 @@ class ModelManager:
             logger.error(f"Error loading model {model_name}: {str(e)}")
             return False
 
-    def save_model(self, model: tf.keras.Model, version: str, metadata: Dict = None) -> bool:
+    def save_model(self, model: torch.nn.Module, version: str, metadata: Dict = None) -> bool:
         """Save a new model version with metadata."""
         try:
             # Create version directory
@@ -53,16 +56,16 @@ class ModelManager:
             os.makedirs(version_dir, exist_ok=True)
 
             # Save model
-            model_path = os.path.join(version_dir, "model")
-            model.save(model_path)
+            model_path = os.path.join(version_dir, "model.pt")
+            torch.save(model.state_dict(), model_path)
 
             # Save metadata
             model_metadata = {
                 "version": version,
                 "created_at": datetime.now().isoformat(),
                 "metrics": {
-                    "parameters": model.count_params(),
-                    "layers": len(model.layers),
+                    "parameters": sum(p.numel() for p in model.parameters()),
+                    "layers": len(list(model.modules())),
                 }
             }
             if metadata:
@@ -87,7 +90,7 @@ class ModelManager:
             for version, metadata in self.model_metadata.items()
         ]
 
-    def get_current_model(self) -> Optional[tf.keras.Model]:
+    def get_current_model(self) -> Optional[torch.nn.Module]:
         """Get the currently loaded model."""
         if self.current_model and self.current_model in self.models:
             return self.models[self.current_model]
