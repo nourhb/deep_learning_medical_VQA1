@@ -104,6 +104,8 @@ datasets/
 models/
 *.csv
 *.json
+api-folder/dataset_chunks/
+api-folder/dataset_chunks/**/*
 
 # Logs
 *.log
