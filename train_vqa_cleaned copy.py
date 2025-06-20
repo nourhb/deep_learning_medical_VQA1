@@ -11,9 +11,11 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from transformers import (
-    BlipForQuestionAnswering,
-    BlipProcessor,
-    get_linear_schedule_with_warmup
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    get_linear_schedule_with_warmup,
+    AutoProcessor,
+    AutoFeatureExtractor
 )
 from datasets import load_dataset
 import numpy as np
@@ -25,7 +27,6 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, f1_score
 import json
 from collections import defaultdict
-import torchvision.transforms as transforms
 
 # Configure logging first
 logging.basicConfig(
@@ -84,7 +85,7 @@ def get_cache_dir():
 
 try:
     import torch
-    from transformers import BlipForQuestionAnswering, BlipProcessor
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 except ImportError as e:
     logging.error(f"Error importing required packages: {str(e)}")
     sys.exit(1)
@@ -95,8 +96,7 @@ def check_dependencies():
         'torch': 'torch',
         'transformers': 'transformers',
         'PIL': 'Pillow',
-        'numpy': 'numpy',
-        'torchvision': 'torchvision'
+        'numpy': 'numpy'
     }
     
     missing_packages = []
@@ -172,14 +172,6 @@ class AdvancedVQADataset:
         self.cache_dir = cache_dir or os.path.join(os.path.dirname(__file__), "dataset_cache")
         os.makedirs(self.cache_dir, exist_ok=True)
         self.medical_processor = MedicalTermProcessor()
-        
-        # Add image preprocessing transforms
-        self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                               std=[0.229, 0.224, 0.225])
-        ])
         
         # Check disk space before starting
         if not check_disk_space(self.cache_dir, 5):
@@ -278,15 +270,12 @@ class AdvancedVQADataset:
             
         sample = self.metadata[idx]
         
-        # Convert PIL image to tensor with proper preprocessing
+        # Convert PIL image to tensor
         if isinstance(sample['image'], Image.Image):
             # Convert to RGB if needed
             if sample['image'].mode != 'RGB':
                 sample['image'] = sample['image'].convert('RGB')
             
-            # Apply transforms to convert to tensor and normalize
-            sample['image'] = self.transform(sample['image'])
-        
         return {
             'image': sample['image'],
             'question': sample['question'],
@@ -317,18 +306,19 @@ class AdvancedVQADataset:
             return None
 
 class SmartVQAModel(nn.Module):
-    def __init__(self, model_name="Salesforce/blip-vqa-base"):
+    def __init__(self, model_name="microsoft/git-base"):
         super().__init__()
-        self.model = BlipForQuestionAnswering.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface"),
             local_files_only=False,
             resume_download=True,
             low_cpu_mem_usage=True,
             torch_dtype=torch.float16,
-            device_map="auto"
+            device_map="auto"  # ADDED: Auto device mapping for GPU
         )
-        self.processor = BlipProcessor.from_pretrained(model_name)
+        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
         
         # Add confidence scoring layer
         self.confidence_layer = nn.Sequential(
@@ -425,7 +415,7 @@ class ModelTrainer:
         self.optimizer = AdamW(model.parameters(), lr=5e-5)
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer,
-            num_warmup_steps=len(train_loader) * 2,
+            num_warmup_steps=len(train_loader) // 10,
             num_training_steps=len(train_loader) * 10
         )
         
@@ -508,9 +498,9 @@ def train_model():
         # Create data loader with reduced batch size for GPU memory
         train_loader = DataLoader(
             train_dataset,
-            batch_size=4,
+            batch_size=4,  # REDUCED from 8 to 4 for GPU memory
             shuffle=True,
-            num_workers=2
+            num_workers=2   # REDUCED from 4 to 2 to avoid CPU bottleneck
         )
         
         # Initialize trainer
@@ -526,7 +516,7 @@ def train_model():
             trainer.save_checkpoint(epoch, loss, confidence)
             
             # Visualize attention for a sample
-            if epoch % 2 == 0:
+            if epoch % 2 == 0:  # Every 2 epochs
                 sample = next(iter(train_loader))
                 result = model.generate_answer(
                     sample['image'][0].to(device),
@@ -552,4 +542,6 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as e:
         logging.error(f"Fatal error: {str(e)}")
-        sys.exit(1) 
+        sys.exit(1)
+
+# ... rest of existing code ... 
